@@ -183,6 +183,37 @@ module hart #(
     assign o_retire_rd_wdata  = rd_data;
 
 
+    wire [6:0]  opcode;
+    wire [2:0]  funct3;
+    wire [6:0]  funct7;
+    wire [4:0]  rs1_addr;
+    wire [4:0]  rs2_addr;
+    wire [4:0]  rd_addr;
+    wire [31:0] imm_i, imm_s, imm_b, imm_u, imm_j;
+
+    // instantiate decoder
+    decoder u_decoder (
+        .inst   (i_imem_rdata),
+        .opcode (opcode),
+        .funct3 (funct3),
+        .funct7 (funct7),
+        .rs1    (rs1_addr),
+        .rs2    (rs2_addr),
+        .rd     (rd_addr),
+        .imm_i  (imm_i),
+        .imm_s  (imm_s),
+        .imm_b  (imm_b),
+        .imm_u  (imm_u),
+        .imm_j  (imm_j)
+    );
+
+    // link to register file read addresses
+    // (wires already declared in RF section)
+    assign u_rf.raddr1 = rs1_addr;
+    assign u_rf.raddr2 = rs2_addr;
+
+
+
 endmodule
 
 `default_nettype wire
