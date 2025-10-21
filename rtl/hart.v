@@ -131,6 +131,58 @@ module hart #(
 `endif
 );
     // Fill in your implementation here.
+   
+    wire [31:0] pc_curr;
+    wire [31:0] pc_next;
+
+    // Instantiate PC module
+    pc #(
+        .RESET_ADDR(RESET_ADDR)
+    ) u_pc (
+        .clk(i_clk),
+        .rst(i_rst),
+        .pc_next(pc_next),
+        .pc_curr(pc_curr)
+    );
+
+    // Connect PC output to instruction memory address
+    assign o_imem_raddr = pc_curr;
+
+    // For now, until branch logic exists, PC just increments by 4
+    assign pc_next = pc_curr + 32'd4;
+
+    // Retire interface (partial wiring for visibility)
+    assign o_retire_pc       = pc_curr;
+    assign o_retire_next_pc  = pc_next;
+    assign o_retire_inst     = i_imem_rdata;
+    assign o_retire_valid    = 1'b1;  // one instruction retires per cycle (single-cycle CPU)
+
+    wire [4:0]  rs1_addr, rs2_addr, rd_addr;
+    wire [31:0] rs1_data, rs2_data, rd_data;
+    wire        reg_write_en;
+
+    // instantiate register file
+    rf u_rf (
+        .clk   (i_clk),
+        .rst   (i_rst),
+        .wen   (reg_write_en),
+        .waddr (rd_addr),
+        .wdata (rd_data),
+        .raddr1(rs1_addr),
+        .raddr2(rs2_addr),
+        .rdata1(rs1_data),
+        .rdata2(rs2_data)
+    );
+
+    // connect to retire interface (for testbench printing)
+    assign o_retire_rs1_raddr = rs1_addr;
+    assign o_retire_rs2_raddr = rs2_addr;
+    assign o_retire_rs1_rdata = rs1_data;
+    assign o_retire_rs2_rdata = rs2_data;
+    assign o_retire_rd_waddr  = rd_addr;
+    assign o_retire_rd_wdata  = rd_data;
+
+
 endmodule
 
 `default_nettype wire
