@@ -132,66 +132,31 @@ module hart #(
 );
     // Fill in your implementation here.
    
+     //====================================================
+    // 1. Program Counter
+    //====================================================
     wire [31:0] pc_curr;
     wire [31:0] pc_next;
 
-    // Instantiate PC module
-    pc #(
-        .RESET_ADDR(RESET_ADDR)
-    ) u_pc (
-        .clk(i_clk),
-        .rst(i_rst),
-        .pc_next(pc_next),
-        .pc_curr(pc_curr)
+    pc #(.RESET_ADDR(RESET_ADDR)) u_pc (
+        .clk     (i_clk),
+        .rst     (i_rst),
+        .pc_next (pc_next),
+        .pc_curr (pc_curr)
     );
 
-    // Connect PC output to instruction memory address
     assign o_imem_raddr = pc_curr;
+    assign o_retire_pc  = pc_curr;
 
-    // For now, until branch logic exists, PC just increments by 4
-    assign pc_next = pc_curr + 32'd4;
-
-    // Retire interface (partial wiring for visibility)
-    assign o_retire_pc       = pc_curr;
-    assign o_retire_next_pc  = pc_next;
-    assign o_retire_inst     = i_imem_rdata;
-    assign o_retire_valid    = 1'b1;  // one instruction retires per cycle (single-cycle CPU)
-
-    wire [4:0]  rs1_addr, rs2_addr, rd_addr;
-    wire [31:0] rs1_data, rs2_data, rd_data;
-    wire        reg_write_en;
-
-    // instantiate register file
-    rf u_rf (
-        .clk   (i_clk),
-        .rst   (i_rst),
-        .wen   (reg_write_en),
-        .waddr (rd_addr),
-        .wdata (rd_data),
-        .raddr1(rs1_addr),
-        .raddr2(rs2_addr),
-        .rdata1(rs1_data),
-        .rdata2(rs2_data)
-    );
-
-    // connect to retire interface (for testbench printing)
-    assign o_retire_rs1_raddr = rs1_addr;
-    assign o_retire_rs2_raddr = rs2_addr;
-    assign o_retire_rs1_rdata = rs1_data;
-    assign o_retire_rs2_rdata = rs2_data;
-    assign o_retire_rd_waddr  = rd_addr;
-    assign o_retire_rd_wdata  = rd_data;
-
-
+    //====================================================
+    // 2. Decode Stage
+    //====================================================
     wire [6:0]  opcode;
     wire [2:0]  funct3;
     wire [6:0]  funct7;
-    wire [4:0]  rs1_addr;
-    wire [4:0]  rs2_addr;
-    wire [4:0]  rd_addr;
+    wire [4:0]  rs1_addr, rs2_addr, rd_addr;
     wire [31:0] imm_i, imm_s, imm_b, imm_u, imm_j;
 
-    // instantiate decoder
     decoder u_decoder (
         .inst   (i_imem_rdata),
         .opcode (opcode),
@@ -207,10 +172,114 @@ module hart #(
         .imm_j  (imm_j)
     );
 
-    // link to register file read addresses
-    // (wires already declared in RF section)
-    assign u_rf.raddr1 = rs1_addr;
-    assign u_rf.raddr2 = rs2_addr;
+    //====================================================
+    // 3. Register File
+    //====================================================
+    wire [31:0] rs1_data, rs2_data, rd_data;
+    wire        reg_write_en;
+
+    rf u_rf (
+        .clk    (i_clk),
+        .rst    (i_rst),
+        .wen    (reg_write_en),
+        .waddr  (rd_addr),
+        .wdata  (rd_data),
+        .raddr1 (rs1_addr),
+        .raddr2 (rs2_addr),
+        .rdata1 (rs1_data),
+        .rdata2 (rs2_data)
+    );
+
+    // Retire interface mapping for testbench
+    assign o_retire_rs1_raddr = rs1_addr;
+    assign o_retire_rs1_rdata = rs1_data;
+    assign o_retire_rs2_raddr = rs2_addr;
+    assign o_retire_rs2_rdata = rs2_data;
+    assign o_retire_rd_waddr  = rd_addr;
+    assign o_retire_rd_wdata  = rd_data;
+
+    //====================================================
+    // 4. Control Unit
+    //====================================================
+    wire [3:0] alu_ctrl;
+    wire       reg_write, mem_read, mem_write, mem_to_reg;
+    wire       alu_src, branch, jump;
+
+    control u_control (
+        .i_opcode    (opcode),
+        .i_funct3    (funct3),
+        .i_funct7    (funct7),
+        .o_alu_ctrl  (alu_ctrl),
+        .o_reg_write (reg_write),
+        .o_mem_read  (mem_read),
+        .o_mem_write (mem_write),
+        .o_mem_to_reg(mem_to_reg),
+        .o_alu_src   (alu_src),
+        .o_branch    (branch),
+        .o_jump      (jump)
+    );
+
+    //====================================================
+    // 5. Immediate Generator
+    //====================================================
+    wire [31:0] imm_out;
+
+    imm_gen u_imm_gen (
+        .i_instr (i_imem_rdata),
+        .o_imm   (imm_out)
+    );
+
+    //====================================================
+    // 6. ALU + Operand MUX
+    //====================================================
+    wire [31:0] alu_op2;
+    wire [31:0] alu_result;
+    wire        alu_zero;
+
+    assign alu_op2 = (alu_src) ? imm_out : rs2_data;
+
+    alu u_alu (
+        .i_op1      (rs1_data),
+        .i_op2      (alu_op2),
+        .i_alu_ctrl (alu_ctrl),
+        .o_result   (alu_result),
+        .o_zero     (alu_zero)
+    );
+
+    //====================================================
+    // 7. Data Memory Interface
+    //====================================================
+    assign o_dmem_addr  = alu_result;
+    assign o_dmem_wdata = rs2_data;
+    assign o_dmem_ren   = mem_read;
+    assign o_dmem_wen   = mem_write;
+    assign o_dmem_mask  = 4'b1111; // full 32-bit access for now
+
+    //====================================================
+    // 8. Writeback Stage
+    //====================================================
+    assign rd_data       = (mem_to_reg) ? i_dmem_rdata : alu_result;
+    assign reg_write_en  = reg_write;
+
+    //====================================================
+    // 9. Branch / Jump / Next PC Logic
+    //====================================================
+    wire [31:0] pc_plus_4      = pc_curr + 32'd4;
+    wire [31:0] branch_target  = pc_curr + imm_out;
+
+    assign pc_next = (jump)                    ? branch_target :
+                     (branch && alu_zero)      ? branch_target :
+                     pc_plus_4;
+
+    assign o_retire_next_pc = pc_next;
+
+    //====================================================
+    // 10. Retire / Halt / Trap
+    //====================================================
+    assign o_retire_inst  = i_imem_rdata;
+    assign o_retire_valid = 1'b1;
+    assign o_retire_trap  = 1'b0;
+    assign o_retire_halt  = (opcode == 7'b1110011); // ebreak detection
 
 
 

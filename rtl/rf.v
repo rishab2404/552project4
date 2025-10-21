@@ -27,9 +27,9 @@ module rf (
     always @(posedge clk) begin
         if (rst) begin
             for (i = 0; i < 32; i = i + 1)
-                mem[i] = 32'd0;
+                mem[i] <= 32'd0;
         end else if (wen && (waddr != 5'd0)) begin
-            mem[waddr] = wdata;      // writes rd ≠ x0 only
+            mem[waddr] <= wdata;      // writes rd ≠ x0 only
         end
     end
 

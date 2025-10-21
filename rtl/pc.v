@@ -22,11 +22,12 @@ module pc #(
 
     // sequential update of PC
     always @(posedge clk) begin
-        if (rst)
-            pc_reg = RESET_ADDR;   // initialize PC to reset address
-        else
-            pc_reg = pc_next;      // move to next instruction
+    if (rst)
+        pc_reg <= RESET_ADDR;
+    else
+        pc_reg <= pc_next;
     end
+
 
     // drive output
     assign pc_curr = pc_reg;
